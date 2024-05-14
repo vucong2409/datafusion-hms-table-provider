@@ -1,0 +1,47 @@
+services:
+  # Postgres 12 to support HMS old driver.
+  # See: https://docs.stackable.tech/home/stable/hive/usage-guide/derby-example.html
+  postgresql:
+    image: postgres:12.1-alpine
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: Sup3rSecr3t
+      POSTGRES_DB: metastore
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready", "-d", "metastore"]
+      interval: 10s
+      timeout: 60s
+      retries: 5
+      start_period: 60s
+  hms:
+    build: .
+    volumes:
+      - ./custom-image/conf/hive:/opt/hive/conf
+      - ./custom-image/conf/hadoop:/opt/hadoop/etc/hadoop
+    restart: always
+    environment:
+      SERVICE_NAME: metastore
+      DB_DRIVER: postgres
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      create-bucket:
+        condition: service_completed_successfully
+  minio:
+    image: minio/minio
+    command: [server, --address=:9000, --console-address=:9001, /data]
+    restart: always
+    ports:
+      - 9000:9000
+      - 9001:9001
+  create-bucket:
+    image: minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc mb myminio/warehouse;
+      /usr/bin/mc policy set public myminio/warehouse;
+      exit 0;
+      "
